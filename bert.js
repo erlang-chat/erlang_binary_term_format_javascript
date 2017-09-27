@@ -3,14 +3,7 @@
 // Contributions by Ben Browning (@bbrowning)
 // See MIT-LICENSE for licensing information.
 
-
-// BERT-JS is a Javascript implementation of Binary Erlang Term Serialization.
-// - http://github.com/rklophaus/BERT-JS
-//
-// References:
-// - http://www.erlang-factory.com/upload/presentations/36/tom_preston_werner_erlectricity.pdf
-// - http://www.erlang.org/doc/apps/erts/erl_ext_dist.html#8
-
+// Updated for map support
 
 // - CLASSES -
 
@@ -25,12 +18,15 @@ function BertClass() {
 	this.LARGE_BIG = String.fromCharCode(111);
 	this.FLOAT = String.fromCharCode(99);
 	this.STRING = String.fromCharCode(107);
+	this.MAP = String.fromCharCode(116);
 	this.LIST = String.fromCharCode(108);
 	this.SMALL_TUPLE = String.fromCharCode(104);
 	this.LARGE_TUPLE = String.fromCharCode(105);
 	this.NIL = String.fromCharCode(106);
 	this.ZERO = String.fromCharCode(0);
-    this.ZERO_CHAR = String.fromCharCode(48);
+	this.encodeObjectKeysAsNumber = false;
+	this.encodeStringAsBinary = false;
+	this.decodeBinaryAsStringForKeys = [];
 }
 
 function BertAtom(Obj) {
@@ -43,6 +39,14 @@ function BertAtom(Obj) {
 
 function BertBinary(Obj) {
 	this.type = "Binary";
+	this.value = Obj;
+	this.toString = function () {
+		return "<<\"" + Obj + "\">>";
+	};
+}
+
+function BertNumber(Obj) {
+	this.type = "Number";
 	this.value = Obj;
 	this.toString = function () {
 		return "<<\"" + Obj + "\">>";
@@ -70,7 +74,6 @@ function BertTuple(Arr) {
 }
 
 
-
 // - INTERFACE -
 
 BertClass.prototype.encode = function (Obj) {
@@ -96,32 +99,40 @@ BertClass.prototype.binary = function (Obj) {
 	return new BertBinary(Obj);
 };
 
+BertClass.prototype.number = function (Obj) {
+	return new BertNumber(Obj);
+};
+
 BertClass.prototype.tuple = function () {
 	return new BertTuple(arguments);
 };
 
-
-
 // - ENCODING -
 
 BertClass.prototype.encode_inner = function (Obj) {
-    if (Obj === undefined) throw new Error("Cannot encode undefined values.")
+	if (Obj === undefined) throw new Error("Cannot encode undefined values.")
 	var func = 'encode_' + typeof(Obj);
 	return this[func](Obj);
 };
 
 BertClass.prototype.encode_string = function (Obj) {
-	return this.STRING + this.int_to_bytes(Obj.length, 2) + Obj;
+	if (this.encodeStringAsBinary) {
+		return this.encode_binary(Obj);
+	} else {
+		return this.STRING + this.int_to_bytes(Obj.length, 2) + Obj;
+	}
+};
+
+BertClass.prototype.encode_binary = function(Obj) {
+	return this.BINARY + this.int_to_bytes(Obj.length, 4) + Obj;
 };
 
 BertClass.prototype.encode_boolean = function (Obj) {
 	if (Obj) {
-		return this.encode_inner(
-			this.tuple(this.atom("bert"), this.atom("true")));
+		return this.encode_inner(this.atom("true"));
 	}
 	else {
-		return this.encode_inner(
-			this.tuple(this.atom("bert"), this.atom("false")));
+		return this.encode_inner(this.atom("false"));
 	}
 };
 
@@ -155,15 +166,15 @@ BertClass.prototype.encode_number = function (Obj) {
 BertClass.prototype.encode_float = function (Obj) {
 	// float...
 	var s = Obj.toExponential(20);
-    var match = /([^e]+)(e[+-])(\d+)/.exec(s);
-    var a = match[1];
-    var b = match[2];
-    var c = match[3];
-    var exponentialPart = c;
-    if ( exponentialPart.length == 1 ) {
-        exponentialPart = '0' + exponentialPart;
-    }
-    s = a+b+exponentialPart;
+	var match = /([^e]+)(e[+-])(\d+)/.exec(s);
+	var a = match[1];
+	var b = match[2];
+	var c = match[3];
+	var exponentialPart = c;
+	if ( exponentialPart.length == 1 ) {
+		exponentialPart = '0' + exponentialPart;
+	}
+	s = a+b+exponentialPart;
 	while (s.length < 31) {
 		s += this.ZERO;
 	}
@@ -173,16 +184,19 @@ BertClass.prototype.encode_float = function (Obj) {
 BertClass.prototype.encode_object = function (Obj) {
 	// Check if it's an atom, binary, or tuple...
 	if (Obj === null){
-	    return this.encode_inner(this.atom("null"));
+		return this.encode_inner(this.atom("null"));
 	}
-	if (Obj.type === "Atom") {
-		return this.encode_atom(Obj);
-	}
-	if (Obj.type === "Binary") {
-		return this.encode_binary(Obj);
-	}
-	if (Obj.type === "Tuple") {
-		return this.encode_tuple(Obj);
+	switch (Obj.type) {
+		case "Atom":
+			return this.encode_atom(Obj);
+		case "Binary":
+			return this.encode_binary(Obj.value);
+		case "Tuple":
+			return this.encode_tuple(Obj);
+		case "Number":
+			return this.encode_number(Obj.value);
+		default:
+			break
 	}
 
 	// Check if it's an array...
@@ -191,7 +205,7 @@ BertClass.prototype.encode_object = function (Obj) {
 	}
 
 	// Treat the object as an associative array...
-	return this.encode_associative_array(Obj);
+	return this.encode_map(Obj);
 };
 
 BertClass.prototype.encode_atom = function (Obj) {
@@ -199,7 +213,7 @@ BertClass.prototype.encode_atom = function (Obj) {
 };
 
 BertClass.prototype.encode_binary = function (Obj) {
-	return this.BINARY + this.int_to_bytes(Obj.value.length, 4) + Obj.value;
+	return this.BINARY + this.int_to_bytes(Obj.length, 4) + Obj;
 };
 
 BertClass.prototype.encode_tuple = function (Obj) {
@@ -227,52 +241,69 @@ BertClass.prototype.encode_array = function (Obj) {
 	return s;
 };
 
-BertClass.prototype.encode_associative_array = function (Obj) {
-	var key, Arr = [];
-	for (key in Obj) {
+BertClass.prototype.encode_map = function (Obj) {
+	var keys = 0;
+	var mapData = '';
+	for (var key in Obj) {
 		if (Obj.hasOwnProperty(key)) {
-			Arr.push(this.tuple(this.atom(key), Obj[key]));
+			if (this.encodeObjectKeysAsNumber) {
+				mapData += this.encode_number(key);
+			} else {
+				mapData += this.encode_inner(key);
+			}
+
+			mapData +=  this.encode_inner(Obj[key]);
+			keys++;
 		}
 	}
-	return this.encode_array(Arr);
+
+	return this.MAP + this.int_to_bytes(keys, 4) + mapData;
 };
 
-
-
 // - DECODING -
+
+BertClass.prototype.decodeBinaryAsStringForKey = function(key) {
+	return this.decodeBinaryAsStringForKeys.indexOf(key) != -1;
+};
+
+BertClass.prototype.markDecodeBinaryAsStringForKey = function (key) {
+	this.decodeBinaryAsStringForKeys.push(key);
+};
 
 BertClass.prototype.decode_inner = function (S) {
 	var Type = S[0];
 	S = S.substring(1);
 	switch (Type) {
-	case this.SMALL_ATOM:
-		return this.decode_atom(S, 1);
-	case this.ATOM:
-		return this.decode_atom(S, 2);
-	case this.BINARY:
-		return this.decode_binary(S);
-	case this.SMALL_INTEGER:
-		return this.decode_small_integer(S);
-	case this.INTEGER:
-		return this.decode_integer(S, 4);
-	case this.SMALL_BIG:
-		return this.decode_big(S, 1);
-	case this.LARGE_BIG:
-		return this.decode_big(S, 4);
-	case this.FLOAT:
-		return this.decode_float(S);
-	case this.STRING:
-		return this.decode_string(S);
-	case this.LIST:
-		return this.decode_list(S);
-	case this.SMALL_TUPLE:
-		return this.decode_tuple(S, 1);
-	case this.LARGE_TUPLE:
-		return this.decode_large_tuple(S, 4);
-	case this.NIL:
-		return this.decode_nil(S);
-	default:
-		throw ("Unexpected BERT type: " + S.charCodeAt(0));
+		case this.SMALL_ATOM:
+			return this.decode_atom(S, 1);
+		case this.ATOM:
+			return this.decode_atom(S, 2);
+		case this.BINARY:
+			return this.decode_binary(S);
+		case this.SMALL_INTEGER:
+			return this.decode_small_integer(S);
+		case this.INTEGER:
+			return this.decode_integer(S, 4);
+		case this.SMALL_BIG:
+			return this.decode_big(S, 1);
+		case this.LARGE_BIG:
+			return this.decode_big(S, 4);
+		case this.FLOAT:
+			return this.decode_float(S);
+		case this.STRING:
+			return this.decode_string(S);
+		case this.LIST:
+			return this.decode_list(S);
+		case this.SMALL_TUPLE:
+			return this.decode_tuple(S, 1);
+		case this.LARGE_TUPLE:
+			return this.decode_tuple(S, 4);
+		case this.MAP:
+			return this.decode_map(S);
+		case this.NIL:
+			return this.decode_nil(S);
+		default:
+			throw ("Unexpected BERT type: " + S.charCodeAt(0));
 	}
 };
 
@@ -281,8 +312,15 @@ BertClass.prototype.decode_atom = function (S, Count) {
 	Size = this.bytes_to_int(S, Count);
 	S = S.substring(Count);
 	Value = S.substring(0, Size);
+
+	if (Value === 'true') {
+		Value = true;
+	} else if (Value === 'false') {
+		Value = false;
+	}
+
 	return {
-		value: this.atom(Value),
+		value: Value,
 		rest:  S.substring(Size)
 	};
 };
@@ -374,30 +412,56 @@ BertClass.prototype.decode_tuple = function (S, Count) {
 	if (Size >= 2) {
 		var Head = Arr[0];
 		if (typeof Head === 'object' && Head.type === 'Atom'
-		    && Head.value === "bert") {
+			&& Head.value === "bert") {
 			var Kind = Arr[1];
 			if (typeof Kind !== 'object' || Kind.type !== 'Atom') {
 				throw ("Invalid {bert, _} tuple!");
 			}
 			switch (Kind.value) {
-			case "true":
-				return {value: true, rest: S};
-			case "false":
-				return {value: false, rest: S};
-			case "nil":
-				return {value: [], rest: S};
-			case "time":
-			case "dict":
-			case "regex":
-				throw ("TODO: decode " + Kind.Value);
-			default:
-				throw ("Invalid {bert, " +
-				    Kind.Value.toString() + "} tuple!");
+				case "true":
+					return {value: true, rest: S};
+				case "false":
+					return {value: false, rest: S};
+				case "nil":
+					return {value: [], rest: S};
+				case "time":
+				case "dict":
+				case "regex":
+					throw ("TODO: decode " + Kind.Value);
+				default:
+					throw ("Invalid {bert, " +
+					Kind.Value.toString() + "} tuple!");
 			}
 		}
 	}
 	return {
 		value: this.tuple.apply(this,Arr),
+		rest: S
+	};
+};
+
+BertClass.prototype.decode_map = function(S) {
+	var Size = this.bytes_to_int(S, 4);
+	S = S.substring(4);
+	var map = {};
+
+	for (var i = 0; i < Size; i++) {
+		var KeyEl = this.decode_inner(S);
+		S = KeyEl.rest;
+		var ValEl = this.decode_inner(S);
+		S = ValEl.rest;
+		var key = KeyEl.value;
+		var parsedVal = ValEl.value;
+
+		if (parsedVal.type === 'Binary' && this.decodeBinaryAsStringForKey(key)) {
+			parsedVal = parsedVal.value;
+		}
+
+		map[key] = parsedVal;
+	}
+
+	return {
+		value: map,
 		rest: S
 	};
 };
@@ -409,8 +473,6 @@ BertClass.prototype.decode_nil = function (S) {
 		rest: S
 	};
 };
-
-
 
 // - UTILITY FUNCTIONS -
 
@@ -533,10 +595,8 @@ BertClass.prototype.pp_term = function (Obj) {
 };
 
 BertClass.prototype.binary_to_list = function (Str){
-    var ret = [];
-    for (var i = 0; i < Str.length; i++)
-        ret.push(Str.charCodeAt(i));
-    return ret;
+	var ret = [];
+	for (var i = 0; i < Str.length; i++)
+		ret.push(Str.charCodeAt(i));
+	return ret;
 };
-
-module.exports = new BertClass();
