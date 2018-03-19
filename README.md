@@ -1,5 +1,10 @@
 # BERT-JS
 
+For Other Languages
+
+* [Swift](https://github.com/softwarejoint/SwiftBert)
+* [Android](https://github.com/softwarejoint/AndroidBert)
+* [JavaScript](https://github.com/softwarejoint/JavaScriptBert)
 
 ### What is BERT?
 BERT (Binary Erlang Term) is a format created by the Erlang development team for serializing Erlang terms, and promoted by Tom Preston-Werner as a way for different languages to communicate in a simple and efficient manner.
@@ -9,9 +14,6 @@ BERT (Binary Erlang Term) is a format created by the Erlang development team for
 ### What is BERT JS?
 
 BERT-JS is a first cut Javascript implementation of the BERT protocol. In other words, using BERT-JS, you can serialize data into a binary format that can then be de-serialized by Erlang directly into an Erlang term.
-
-* [Swift](https://github.com/softwarejoint/BERTswift)
-* [Android](https://github.com/softwarejoint/BertAndroid)
 
 ### Limitations
 
