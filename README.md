@@ -2,9 +2,9 @@
 
 For Other Languages
 
-* [Swift](https://github.com/softwarejoint/SwiftBert)
-* [Android](https://github.com/softwarejoint/AndroidBert)
-* [JavaScript](https://github.com/softwarejoint/JavaScriptBert)
+* [Swift](https://github.com/erlang-chat/erlang_binary_term_format_swift)
+* [Android](https://github.com/erlang-chat/erlang_binary_term_format_android)
+* [JavaScript](https://github.com/erlang-chat/erlang_binary_term_format_javascript)
 
 ### What is BERT?
 BERT (Binary Erlang Term) is a format created by the Erlang development team for serializing Erlang terms, and promoted by Tom Preston-Werner as a way for different languages to communicate in a simple and efficient manner.
